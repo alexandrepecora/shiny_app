@@ -1,0 +1,12 @@
+name: seir_simulator
+title: seir_simulator
+username:
+account: alexandrepecora
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2404253
+bundleId: 3225631
+url: https://alexandrepecora.shinyapps.io/seir_simulator/
+when: 1591223246.77038
+asMultiple: FALSE
+asStatic: FALSE
