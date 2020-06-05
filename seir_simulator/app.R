@@ -174,8 +174,9 @@ plot1 <- function(sim_data, x_limit) {
         scale_colour_manual(values = compcols, 
                             labels = complabels) +
         scale_y_continuous(label = comma) +
-        labs(title = "Baseline simulation", 
-             x = "Days since beginning of epidemic", y = "Prevalence (persons)")
+        labs(title = "Simulation Results", 
+             x = "Days since beginning of epidemic", y = "Prevalence (persons)") +
+        theme(legend.position="bottom")
 }
 
 plot2 <- function(sim_data, x_limit, icu_beds) {
@@ -200,8 +201,9 @@ plot2 <- function(sim_data, x_limit, icu_beds) {
         scale_colour_manual(values = compcols, 
                             labels = complabels) +
         scale_y_continuous(label = comma) +
-        labs(title = "Baseline simulation", 
-             x = "Days since beginning of epidemic", y = "Prevalence (persons)")
+        labs(title = "Simulation Results", 
+             x = "Days since beginning of epidemic", y = "Prevalence (persons)")  +
+        theme(legend.position="bottom")
 }
 
 plot_backtest <- function(sim_data1, sim_data2, x_lim) {
@@ -242,7 +244,7 @@ plot_backtest <- function(sim_data1, sim_data2, x_lim) {
     
     ## PLOT: PREDICTED VS REALIZED: SP 
     group.colors <- c(SP = "green", model = "black", model_quar = "blue")
-    complabels <- c(model = "Baseline", model_quar = "Quarantine")
+    complabels <- c(model = "Sem quarentena", model_quar = "Com quarentena")
     y_lim <- max(dt_backtest[ time < day_limit, f.num])
     # Plot
     ggplot(data = dt_backtest, aes(x = time, y = f.num)) +
@@ -302,9 +304,12 @@ economy <- function(pop, x_limit, sim_data1, sim_data2) {
     compcols <- c(gdp_base = "black", gdp_sim = "blue" )
     complabels <- c(gdp_base = "Baseline", gdp_sim = "Quarantine")
     economy_plot_df %>% ggplot(aes(x = time, y = count, colour = Groups)) + 
-        geom_line(size = 2, alpha = 0.7) + scale_colour_manual(values = compcols, 
-                                                               labels = complabels) + labs(title = "GDP Impact: Baseline simulation vs Quarantine", 
-                                                                                                          x = "Days since beginning of epidemic", y = "GDP")
+        geom_line(size = 2, alpha = 0.7) + 
+        scale_colour_manual(values = compcols, 
+                            labels = complabels) + 
+        labs(title = "GDP Impact: Simulation vs Non-Quarantine", 
+             x = "Days since beginning of epidemic", y = "GDP") +
+        theme(legend.position="bottom")
 }
 
 
@@ -315,22 +320,34 @@ ui <- shinyUI(fluidPage(
     titlePanel("Simulador: SEIR + Quarentena + Economia"),
     
     plotOutput(outputId = "plot1"),
+    plotOutput(outputId = "plot2"),
+    plotOutput(outputId = "plot3"),
     fluidRow(column(4, numericInput(inputId = "input_xaxis1",
                                     label = "Input max days in X axis",
                                     min = 1,
                                     max = 720,
                                     value = 360))),
-    plotOutput(outputId = "plot2"),
-    plotOutput(outputId = "plot3"),
+    
     # Sidebar panel for inputs ----
     fluidRow(
         
+        actionButton("go", "Calculate"),
+        actionButton("reset", "Reset parameters"),
+        
         column(4, 
+               
+               h4(textOutput(outputId = "caption1")),
+               
+               sliderInput(inputId = "input_lambda",
+                           label = "Daily encounters:",
+                           min = 1,
+                           max = 50,
+                           value = 14),
                
                sliderInput(inputId = "input_rho",
                            label = "Infection probability (%):",
                            min = 0.5,
-                           max = 10,
+                           max = 5,
                            step = 0.1,
                            value = 1.2, 
                            round = T),
@@ -378,6 +395,9 @@ ui <- shinyUI(fluidPage(
         ),
         
         column(4,
+               
+               h4(textOutput(outputId = "caption2")),
+               
                sliderInput(inputId = "input_lambda_q",
                            label = "Daily encounters (in quarantine):",
                            min = 1,
@@ -402,6 +422,9 @@ ui <- shinyUI(fluidPage(
         ),
         
         column(4,
+               
+               h4(textOutput(outputId = "caption3")),
+               
                numericInput(inputId = "input_pop",
                             label = "Population",
                             value = 44000000),
@@ -416,19 +439,7 @@ ui <- shinyUI(fluidPage(
                
                numericInput(inputId = "input_icu",
                             label = "Number of ICU beds",
-                            value = 100000),
-               
-               sliderInput(inputId = "input_lambda",
-                           label = "Daily encounters:",
-                           min = 1,
-                           max = 50,
-                           value = 14),
-               
-               sliderInput(inputId = "input_lambda_q",
-                           label = "Daily encounters (in quarantine):",
-                           min = 1,
-                           max = 50,
-                           value = 7)     
+                            value = 100000)
         )
     ),
     plotOutput(outputId = "plot4"),
@@ -442,17 +453,26 @@ ui <- shinyUI(fluidPage(
 ))
 
 
-server <- function(input, output) {
+server <- function(input, output, session) {
     
+    # 0. Reset sliders to initial values after clicking RESET
+    observeEvent(input$reset,{
+        updateSliderInput(session,'input_lambda',value = 14)
+        updateSliderInput(session,'input_rho',value = 1.2)
+        updateSliderInput(session,'input_prog',value = 5.2)
+        updateSliderInput(session,'input_rec',value = 14)
+        updateSliderInput(session,'input_hosp',value = 1)
+        updateSliderInput(session,'input_hosprec',value = 7)
+        updateSliderInput(session,'input_fat',value = 2)
+        updateSliderInput(session,'input_quar',value = 3)
+        updateSliderInput(session,'input_maxquar',value = 50)
+        updateSliderInput(session,'input_lambda_q',value = 7)
+    })
     
-    # 1. It is "reactive" and therefore should be automatically
-    #    re-executed when inputs (input$bins) change
-    # 2. Its output type is a plot
-    output$plot1 <- renderPlot({
-        
-        plot1(x_limit = input$input_xaxis1 , 
-              sim_data = simulate(
-                initial = c(
+    # 1. Update data after clicking buttom
+    sim_data_quar <- eventReactive(input$go, {
+        simulate(
+            initial = c(
                 time = 1,
                 s.num = input$input_pop,
                 e.num = input$input_popinf,
@@ -463,103 +483,25 @@ server <- function(input, output) {
                 h.num = 0,
                 r.num = 0,
                 f.num = 0), 
-                total_time = 720,
-                ## Parameters
-                lambda = input$input_lambda,
-                rho_s = input$input_rho/100,
-                rho_a = input$input_rho/100,
-                prog.rate = 1/input$input_prog,
-                rec.rate = 1/input$input_rec,
-                hosp.rate = input$input_hosp/100,
-                disch.rate = 1/input$input_hosprec,
-                fat.rate.base = input$input_fat/100,
-                quar.rate = input$input_quar/100,
-                max_quar = input$input_maxquar/100,
-                lambda_q = input$input_lambda_q
-         ))
+            total_time = 720,
+            ## Parameters
+            lambda = input$input_lambda,
+            rho_s = input$input_rho/100,
+            rho_a = input$input_rho/100,
+            prog.rate = 1/input$input_prog,
+            rec.rate = 1/input$input_rec,
+            hosp.rate = input$input_hosp/100,
+            disch.rate = 1/input$input_hosprec,
+            fat.rate.base = input$input_fat/100,
+            quar.rate = input$input_quar/100,
+            max_quar = input$input_maxquar/100,
+            lambda_q = input$input_lambda_q
+        )
         
-    })
-    
-    output$plot2 <- renderPlot({
-        
-        plot2(x_limit = input$input_xaxis1,
-              sim_data = simulate(
-                initial = c(
-                time = 1,
-                s.num = input$input_pop,
-                e.num = input$input_popinf,
-                i.num = input$input_popinf,
-                q.num = 0,
-                qe.num = 0,
-                qi.num = 0,
-                h.num = 0,
-                r.num = 0,
-                f.num = 0), 
-                total_time = 720,
-                ## Parameters
-                lambda = input$input_lambda,
-                rho_s = input$input_rho/100,
-                rho_a = input$input_rho/100,
-                prog.rate = 1/input$input_prog,
-                rec.rate = 1/input$input_rec,
-                hosp.rate = input$input_hosp/100,
-                disch.rate = 1/input$input_hosprec,
-                fat.rate.base = input$input_fat/100,
-                quar.rate = input$input_quar/100,
-                max_quar = input$input_maxquar/100,
-                lambda_q = input$input_lambda_q
-                ), icu_beds = input$input_icu)
-        
-    })
-    
-    output$plot3 <- renderPlot({
-        
-        economy(x_limit = input$input_xaxis1, 
-                pop = input$input_pop, 
-                sim_data1 =  simulate(initial = c(
-                time = 1,
-                s.num = input$input_pop,
-                e.num = input$input_popinf,
-                i.num = input$input_popinf,
-                q.num = 0,
-                qe.num = 0,
-                qi.num = 0,
-                h.num = 0,
-                r.num = 0,
-                f.num = 0),
-                total_time = 720), 
-                sim_data2 = simulate(
-                    initial = c(
-                        time = 1,
-                        s.num = input$input_pop,
-                        e.num = input$input_popinf,
-                        i.num = input$input_popinf,
-                        q.num = 0,
-                        qe.num = 0,
-                        qi.num = 0,
-                        h.num = 0,
-                        r.num = 0,
-                        f.num = 0), 
-                    total_time = 720,
-                    ## Parameters
-                    lambda = input$input_lambda,
-                    rho_s = input$input_rho/100,
-                    rho_a = input$input_rho/100,
-                    prog.rate = 1/input$input_prog,
-                    rec.rate = 1/input$input_rec,
-                    hosp.rate = input$input_hosp/100,
-                    disch.rate = 1/input$input_hosprec,
-                    fat.rate.base = input$input_fat/100,
-                    quar.rate = input$input_quar/100,
-                    max_quar = input$input_maxquar/100,
-                    lambda_q = input$input_lambda_q
-                ))
-        
-    }) 
-    
-    output$plot4 <- renderPlot({
-        
-        plot_backtest(sim_data1 =  simulate(initial = c(
+    }, ignoreNULL = FALSE) 
+
+    sim_data_noquar <- eventReactive(input$go, {
+        simulate(initial = c(
             time = 1,
             s.num = input$input_pop,
             e.num = input$input_popinf,
@@ -570,33 +512,57 @@ server <- function(input, output) {
             h.num = 0,
             r.num = 0,
             f.num = 0),
-            total_time = 720), 
-            sim_data2 = simulate(
-                initial = c(
-                    time = 1,
-                    s.num = input$input_pop,
-                    e.num = input$input_popinf,
-                    i.num = input$input_popinf,
-                    q.num = 0,
-                    qe.num = 0,
-                    qi.num = 0,
-                    h.num = 0,
-                    r.num = 0,
-                    f.num = 0), 
-                total_time = 720,
-                ## Parameters
-                lambda = input$input_lambda,
-                rho_s = input$input_rho/100,
-                rho_a = input$input_rho/100,
-                prog.rate = 1/input$input_prog,
-                rec.rate = 1/input$input_rec,
-                hosp.rate = input$input_hosp/100,
-                disch.rate = 1/input$input_hosprec,
-                fat.rate.base = input$input_fat/100,
-                quar.rate = input$input_quar/100,
-                max_quar = input$input_maxquar/100,
-                lambda_q = input$input_lambda_q
-            ), input$input_xaxis)
+            total_time = 720,
+            ## Parameters
+            lambda = input$input_lambda,
+            rho_s = input$input_rho/100,
+            rho_a = input$input_rho/100,
+            prog.rate = 1/input$input_prog,
+            rec.rate = 1/input$input_rec,
+            hosp.rate = input$input_hosp/100,
+            disch.rate = 1/input$input_hosprec,
+            fat.rate.base = input$input_fat/100,
+            quar.rate = 0,
+            max_quar = input$input_maxquar/100,
+            lambda_q = input$input_lambda_q)
+    }, ignoreNULL = FALSE)    
+
+    
+    # 2. Its output type is a plot
+    
+    output$caption1 <- renderText({ "Medical Parameters" })
+    
+    output$caption2 <- renderText({ "Quarantine Parameters" })
+    
+    output$caption3 <- renderText({ "Population Parameters" })
+    
+    output$plot1 <- renderPlot({
+        
+        plot1(x_limit = input$input_xaxis1 , 
+              sim_data = sim_data_quar())
+        
+    }) 
+    
+    output$plot2 <- renderPlot({
+        
+        plot2(x_limit = input$input_xaxis1,
+              sim_data = sim_data_quar(), icu_beds = input$input_icu)
+        
+    }) 
+    
+    output$plot3 <- renderPlot({
+        
+        economy(x_limit = input$input_xaxis1, 
+                pop = input$input_pop, 
+                sim_data1 = sim_data_noquar(), 
+                sim_data2 = sim_data_quar())
+        
+    }) 
+    
+    output$plot4 <- renderPlot({
+        
+        plot_backtest(sim_data1 =  sim_data_noquar(), 
+            sim_data2 = sim_data_quar(), input$input_xaxis)
         
     }) 
 }
