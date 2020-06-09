@@ -30,7 +30,7 @@ simulate <- function(
     rho_a = 0.012, ## Infection probability between Susceptible and Exposed
     lambda_q = 7, ## Quarantine encounters (lambda_q / lambda = efficiency in reducing contacts) 
     ## Medical parameters
-    prog.rate = 1/5.2,     # Rate per day from Exposed to Infected (symptomatic)
+    prog.rate = 1/6,     # Rate per day from Exposed to Infected (symptomatic)
     rec.rate = 1/14,      # Rate per day from Infected (symptomatic) to Recovered 
     hosp.rate = 1/100,    # Rate per day from Infected to Hospitalization
     disch.rate = 1/7,     # Rate per day from Hospitalization to Recovered 
@@ -161,21 +161,28 @@ plot1 <- function(sim_data, x_limit) {
         filter(time <= x_limit) %>% 
         pivot_longer(-c(time), names_to = "Groups", 
                      values_to = "count")
+    baseline_plot$Groups <- factor(baseline_plot$Groups, levels = 
+                                       c("ti.num", "h.num", "f.num"))
+
     
     ## Define a standard set of colours to represent compartments and plot 
     compcols <- c(ti.num = "orange", 
                   h.num = "red", 
-                  f.num = "black")
-    complabels <- c(ti.num = "Infected/infectious",  
-                    h.num = "Requires hospitalisation", 
-                    f.num = "Case fatality")
-    baseline_plot %>% ggplot(aes(x = time, y = count, colour = Groups)) + 
-        geom_line(size = 2, alpha = 0.7) + 
-        scale_colour_manual(values = compcols, 
+                  f.num = "black",
+                  e.num = "cyan")
+    complabels <- c(ti.num = "Mildly Infected",  
+                    h.num = "Severely Infected, Requires Hospitalisation", 
+                    f.num = "Fatalities",
+                    e.num = "Exposed (asymptomatic)")
+    baseline_plot %>% ggplot(aes(x = time, y = count, colour = Groups, fill = Groups)) + 
+        geom_area(size = 1.25, alpha = 0.7) + 
+        scale_colour_manual(name = "", values = compcols, 
                             labels = complabels) +
+        scale_fill_manual(name = "", values = compcols, 
+                          labels = complabels) +
         scale_y_continuous(label = comma) +
         labs(title = "Simulation Results", 
-             x = "Days since beginning of epidemic", y = "Prevalence (persons)") +
+             x = "Days since beginning of simulation", y = "Prevalence (persons)") +
         theme(legend.position="bottom")
 }
 
@@ -189,24 +196,36 @@ plot2 <- function(sim_data, x_limit, icu_beds) {
         pivot_longer(-c(time), names_to = "Groups", 
                      values_to = "count")
     
+    area_plot <- sim_data %>% # use only the prevalence columns
+        select(time, h.num) %>% 
+        filter(time <= x_limit) %>% 
+        pivot_longer(-c(time), names_to = "Groups", 
+                     values_to = "count")
+    
     ## Define a standard set of colours to represent compartments and plot 
     compcols <- c(h.num = "red", 
                   f.num = "black", 
-                  icu = "cyan")
-    complabels <- c(h.num = "Requires hospitalisation", 
-                    f.num = "Case fatality",
+                  icu = "red")
+    complabels <- c(h.num = "Requires Hospitalisation", 
+                    f.num = "Fatalities",
                     icu = "Number of ICU beds")
-    baseline_plot %>% ggplot(aes(x = time, y = count, colour = Groups)) + 
-        geom_line(size = 2, alpha = 0.7) + 
-        scale_colour_manual(values = compcols, 
+   ggplot() + 
+        geom_line(data = baseline_plot, 
+                  aes(x = time, y = count, linetype=Groups, col = Groups), size = 1, alpha = 0.7) + 
+        geom_area(data = area_plot, 
+                 aes(x = time, y = count, linetype=Groups, col = Groups, fill = "red"),
+                 size = 1, alpha = 0.7, show.legend = FALSE) + 
+        scale_colour_manual(name = "", values = compcols, 
                             labels = complabels) +
+        scale_linetype_manual(name = "", values=c(h.num = "solid", f.num = "solid", icu = "dotted"), 
+                              labels = complabels) +
         scale_y_continuous(label = comma) +
         labs(title = "Simulation Results", 
              x = "Days since beginning of epidemic", y = "Prevalence (persons)")  +
         theme(legend.position="bottom")
 }
 
-plot_backtest <- function(sim_data1, sim_data2, x_lim) {
+plot_backtest <- function(cases, sim_data1, sim_data2, x_lim) {
     
     sim <- sim_data1
     
@@ -227,7 +246,7 @@ plot_backtest <- function(sim_data1, sim_data2, x_lim) {
         return(dt)
     }
     
-    dt_sp <- load_data_sp(case_initial = 1)
+    dt_sp <- load_data_sp(case_initial = cases)
     dt_sp <- dt_sp[,"region" := "SP"]
     
     day_limit <- x_lim ## set limit day when pulling data from model
@@ -239,12 +258,13 @@ plot_backtest <- function(sim_data1, sim_data2, x_lim) {
     model_quar <- sim_quar %>% select(time, f.num) %>% filter(time <= day_limit)
     model_quar <- setDT(model_quar)
     model_quar <- model_quar[, "region" := "model_quar"]
+    model_quar$f.num  <- model_quar$f.num + dt_sp$f.num[1]
     
-    dt_backtest <- rbind(dt_sp, model, model_quar, fill = T)
+    dt_backtest <- rbind(dt_sp, model_quar, fill = T)
     
     ## PLOT: PREDICTED VS REALIZED: SP 
-    group.colors <- c(SP = "green", model = "black", model_quar = "blue")
-    complabels <- c(model = "Sem quarentena", model_quar = "Com quarentena")
+    group.colors <- c(SP = "black", model = "blue", model_quar = "blue")
+    complabels <- c(model = "Sem quarentena", model_quar = "Simulated results")
     y_lim <- max(dt_backtest[ time < day_limit, f.num])
     # Plot
     ggplot(data = dt_backtest, aes(x = time, y = f.num)) +
@@ -252,8 +272,8 @@ plot_backtest <- function(sim_data1, sim_data2, x_lim) {
         xlim(1, day_limit) + ylim(NA,y_lim) +  scale_color_manual(values=group.colors, labels = complabels) + 
         scale_y_continuous(label = comma, limits=c(0, y_lim)) +
         theme(legend.title=element_blank())  +
-        labs(title = "Projetado x Realizado", 
-             x = "Days since beginning of epidemic", y = "Prevalence (persons)") + theme(legend.title=element_blank())
+        labs(title = "Projetado x Realizado, Estado de SP", 
+             x = "Days since beginning of simulation", y = "Deaths") + theme(legend.title=element_blank())
     
 }
 
@@ -268,10 +288,11 @@ economy <- function(pop, x_limit, sim_data1, sim_data2) {
         filter(time <= x_limit)
     
     economy_base$qi.perc <- economy_base$qi.num/population
+    economy_base$i.perc <- economy_base$i.num/population
     economy_base$h.perc <- economy_base$h.num/population
     economy_base$f.perc <- economy_base$f.num/population
     economy_base$q.perc <- economy_base$q.num/population
-    economy_base$gdp <- 1 - economy_base$qi.perc - economy_base$h.perc - economy_base$f.perc - economy_base$q.perc*0.5  
+    economy_base$gdp <- 1 - economy_base$qi.perc - economy_base$i.perc - economy_base$h.perc - economy_base$f.perc - economy_base$q.perc*0.5  
     
     ## Storing the number of infected and fatalities in the next year
     economy_sim <- sim_data2 %>% # use only the prevalence columns
@@ -281,10 +302,11 @@ economy <- function(pop, x_limit, sim_data1, sim_data2) {
         filter(time <= x_limit)
     
     economy_sim$qi.perc <- economy_sim$qi.num/population
+    economy_sim$i.perc <- economy_sim$i.num/population
     economy_sim$h.perc <- economy_sim$h.num/population
     economy_sim$f.perc <- economy_sim$f.num/population
     economy_sim$q.perc <- economy_sim$q.num/population
-    economy_sim$gdp <- 1 - economy_sim$qi.perc - economy_sim$h.perc - economy_sim$f.perc - economy_sim$q.perc*0.5  
+    economy_sim$gdp <- 1 - economy_sim$qi.perc - economy_sim$i.perc - economy_sim$h.perc - economy_sim$f.perc - economy_sim$q.perc*0.5  
     
     economy <- data.frame(economy_base$gdp)
     
@@ -304,7 +326,7 @@ economy <- function(pop, x_limit, sim_data1, sim_data2) {
     compcols <- c(gdp_base = "black", gdp_sim = "blue" )
     complabels <- c(gdp_base = "Baseline", gdp_sim = "Quarantine")
     economy_plot_df %>% ggplot(aes(x = time, y = count, colour = Groups)) + 
-        geom_line(size = 2, alpha = 0.7) + 
+        geom_line(size = 1.25, alpha = 0.7) + 
         scale_colour_manual(values = compcols, 
                             labels = complabels) + 
         labs(title = "GDP Impact: Simulation vs Non-Quarantine", 
@@ -316,25 +338,30 @@ economy <- function(pop, x_limit, sim_data1, sim_data2) {
 # Define UI for app that simulates and draws the curves ----
 ui <- shinyUI(fluidPage(
     
+    ## Google Tag (remove this or substitute the html file with your own google tag)
+    tags$head(tags$script(HTML("google-analytics.html"))),
+  
     # App title ----
     titlePanel("Simulador: SEIR + Quarentena + Economia"),
     
     plotOutput(outputId = "plot1"),
-    plotOutput(outputId = "plot2"),
-    plotOutput(outputId = "plot3"),
+
     fluidRow(column(4, numericInput(inputId = "input_xaxis1",
                                     label = "Input max days in X axis",
                                     min = 1,
                                     max = 720,
                                     value = 360))),
     
+    actionButton("go", "Calculate", style="color: white; background-color: blue"),
+    actionButton("reset", "Reset parameters"),
+    
     # Sidebar panel for inputs ----
     fluidRow(
-        
-        actionButton("go", "Calculate"),
-        actionButton("reset", "Reset parameters"),
+    
         
         column(4, 
+               
+               h4(textOutput(outputId = "r0"), style="color: blue"),
                
                h4(textOutput(outputId = "caption1")),
                
@@ -345,8 +372,8 @@ ui <- shinyUI(fluidPage(
                            value = 14),
                
                sliderInput(inputId = "input_rho",
-                           label = "Infection probability (%):",
-                           min = 0.5,
+                           label = "Infection probability (%), given encounter:",
+                           min = 0.1,
                            max = 5,
                            step = 0.1,
                            value = 1.2, 
@@ -396,6 +423,8 @@ ui <- shinyUI(fluidPage(
         
         column(4,
                
+               h4(textOutput(outputId = "r0_quar"), style="color: blue"),
+               
                h4(textOutput(outputId = "caption2")),
                
                sliderInput(inputId = "input_lambda_q",
@@ -412,16 +441,21 @@ ui <- shinyUI(fluidPage(
                            value = 3, 
                            round = T),
                
+               sliderInput(inputId = "input_quar.i",
+                           label = "Infected to Quarantine rate (%)",
+                           min = 0,
+                           max = 100,
+                           step = 1,
+                           value = 100, 
+                           round = T),
+               
                sliderInput(inputId = "input_maxquar",
                            label = "Maximum quarantined population (%)",
                            min = 0,
                            max = 100,
                            step = 1,
                            value = 50, 
-                           round = T)          
-        ),
-        
-        column(4,
+                           round = T),
                
                h4(textOutput(outputId = "caption3")),
                
@@ -429,26 +463,57 @@ ui <- shinyUI(fluidPage(
                             label = "Population",
                             value = 44000000),
                
-               numericInput(inputId = "input_popinf",
-                            label = "Initial population infected",
-                            value = 5000),
+               numericInput(inputId = "input_popquar",
+                            label = "Initial population Quarantined",
+                            value = 0),
                
                numericInput(inputId = "input_popinfa",
-                            label = "Initial population infected (asymptomatic)",
-                            value = 10000),
+                            label = "Initial population Exposed",
+                            value = 5000),
+               
+               numericInput(inputId = "input_popinf",
+                            label = "Initial population Infected",
+                            value = 2500),
                
                numericInput(inputId = "input_icu",
                             label = "Number of ICU beds",
                             value = 100000)
-        )
+               
+        ),
+        
+        column(4,     
+               plotOutput(outputId = "plot2"),
+               plotOutput(outputId = "plot3")),
+                textOutput(outputId = "economy_desc")
     ),
+    
+    h3(textOutput(outputId = "caption4")),
+    
     plotOutput(outputId = "plot4"),
     
-    fluidRow(column(4, numericInput(inputId = "input_xaxis",
-                                    label = "Input max days in X axis",
+    fluidRow(column(4, numericInput(inputId = "input_cases",
+                           label = "Escolha numero de casos iniciais",
+                           min = 1,
+                           max = 10000000,
+                           value = 1)),
+    
+    column(8, 
+           numericInput(inputId = "input_xaxis",
+                                    label = "Ajuste numero maximo de dias no Eixo X",
                                     min = 1,
                                     max = 720,
-                                    value = 100)))
+                                    value = 120))
+ 
+             ),
+    
+    textOutput(outputId = "caption5"),
+    
+    uiOutput("tab0"),
+    
+    h3(textOutput(outputId = "caption6")),
+    uiOutput("tab1"),
+    uiOutput("tab2")
+
     
 ))
 
@@ -465,6 +530,7 @@ server <- function(input, output, session) {
         updateSliderInput(session,'input_hosprec',value = 7)
         updateSliderInput(session,'input_fat',value = 2)
         updateSliderInput(session,'input_quar',value = 3)
+        updateSliderInput(session,'input_quar.i',value = 100)
         updateSliderInput(session,'input_maxquar',value = 50)
         updateSliderInput(session,'input_lambda_q',value = 7)
     })
@@ -474,10 +540,10 @@ server <- function(input, output, session) {
         simulate(
             initial = c(
                 time = 1,
-                s.num = input$input_pop,
-                e.num = input$input_popinf,
+                s.num = input$input_pop - input$input_popquar - input$input_popinf - input$input_popinfa ,
+                e.num = input$input_popinfa,
                 i.num = input$input_popinf,
-                q.num = 0,
+                q.num = input$input_popquar,
                 qe.num = 0,
                 qi.num = 0,
                 h.num = 0,
@@ -494,6 +560,7 @@ server <- function(input, output, session) {
             disch.rate = 1/input$input_hosprec,
             fat.rate.base = input$input_fat/100,
             quar.rate = input$input_quar/100,
+            quar.rate.i = input$input_quar.i/100,
             max_quar = input$input_maxquar/100,
             lambda_q = input$input_lambda_q
         )
@@ -504,7 +571,7 @@ server <- function(input, output, session) {
         simulate(initial = c(
             time = 1,
             s.num = input$input_pop,
-            e.num = input$input_popinf,
+            e.num = input$input_popinfa,
             i.num = input$input_popinf,
             q.num = 0,
             qe.num = 0,
@@ -523,18 +590,30 @@ server <- function(input, output, session) {
             disch.rate = 1/input$input_hosprec,
             fat.rate.base = input$input_fat/100,
             quar.rate = 0,
+            quar.rate.i = 0,
             max_quar = input$input_maxquar/100,
             lambda_q = input$input_lambda_q)
     }, ignoreNULL = FALSE)    
 
     
-    # 2. Its output type is a plot
+    # 2. Outputs:
+    output$r0 <-  renderText({ paste("R0 = ",
+                                     round( ((input$input_rho/100)*input$input_lambda/(1/input$input_prog))*
+                                         (1+(1/input$input_prog)/(1/input$input_rec + 
+                                                                      input$input_hosp/100*(1-1/input$input_hosprec)*input$input_fat/100 )), 3)) })
+    
+    output$r0_quar <-  renderText({ paste("Quarantine R0 = ",
+                                     round( ((input$input_rho/100)*input$input_lambda_q/(1/input$input_prog))*
+                                                (1+(1/input$input_prog)/(1/input$input_rec + 
+                                                                             input$input_hosp/100*(1-1/input$input_hosprec)*input$input_fat/100 )), 3)) })
     
     output$caption1 <- renderText({ "Medical Parameters" })
     
     output$caption2 <- renderText({ "Quarantine Parameters" })
     
     output$caption3 <- renderText({ "Population Parameters" })
+    
+    output$caption4 <- renderText({ "Comparativo fatalidades projetadas x realizadas para o estado de SP:" })
     
     output$plot1 <- renderPlot({
         
@@ -560,11 +639,36 @@ server <- function(input, output, session) {
     }) 
     
     output$plot4 <- renderPlot({
-        
-        plot_backtest(sim_data1 =  sim_data_noquar(), 
+        plot_backtest(cases = input$input_cases , sim_data1 =  sim_data_noquar(), 
             sim_data2 = sim_data_quar(), input$input_xaxis)
-        
     }) 
+    
+    output$caption5 <- renderText({ "Dados de SP são da Secretaria de Estado da Saúde de São Paulo (SES)" })
+    
+    output$caption6 <- renderText({ "References" })
+    
+    url1 <- a("Tim Churches Health Data Science Blog", href="https://timchurches.github.io/blog/posts/2020-03-18-modelling-the-effects-of-public-health-interventions-on-covid-19-transmission-part-2/")
+    url2 <- a("An SEIR Infectious Disease Model with Testing and Conditional Quarantine", href = "https://www.nber.org/papers/w26901")
+    url3 <- a("post", href="http://academicosdobar.site/posts/2020-06-03-simulador-covid-quarentena-economia/")
+    
+    output$tab0 <- renderUI({
+      tagList("Veja comentários acerca da incerteza da previsão neste " , url3)
+    })
+    
+    output$tab1 <- renderUI({
+        tagList("SEIR model:" , url1)
+    })
+
+    output$tab2 <- renderUI({
+        tagList("Quarantine and GDP calculation: Berger, Herkenhoff & Mongey (2020)" , url2)       
+    }) 
+        
+    output$economy_desc <- renderText({ 
+        "Comments: A worker in quarantine is 50% less productive than a non-quarantine worker. An infected worker does not produce (see references)." 
+        }) 
+    
+
+    
 }
 
 shinyApp(ui, server)
