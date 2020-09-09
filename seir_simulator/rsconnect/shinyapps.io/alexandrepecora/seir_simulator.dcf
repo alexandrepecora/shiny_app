@@ -5,8 +5,8 @@ account: alexandrepecora
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 2404253
-bundleId: 3248088
+bundleId: 3258276
 url: https://alexandrepecora.shinyapps.io/seir_simulator/
-when: 1591721370.81199
+when: 1591900813.47095
 asMultiple: FALSE
 asStatic: FALSE
